@@ -9,11 +9,11 @@ y un **commit** (usa el identificador `VULN-xx` en el mensaje del commit).
 
 | # | Etapa del SDLC | Herramienta / técnica | Build | Resultado (resumen) |
 |---|---|---|---|---|
-| R1 | Código (SAST) | Bandit en el pipeline | #4 / #5 | Inicial: 2 hallazgos High / 2 Medium / 1 Low. Tras mitigación: 0 hallazgos |
-| R2 | Dependencias (SCA) | pip-audit en el pipeline | #5 | 19 vulnerabilidades en 4 paquetes (Flask, Werkzeug, Jinja2, gunicorn) |
-| R3 | Pruebas dinámicas (DAST) | OWASP ZAP sobre staging | #__ | Pendiente de ejecución sobre staging (puerto 5001) |
+| R1 | Código (SAST) | Bandit en el pipeline | #4 / #5 | Inicial: 2 hallazgos High / 2 Medium / 1 Low. Tras mitigación (`VULN-01..05`): 0 hallazgos |
+| R2 | Dependencias (SCA) | pip-audit + Dependabot | #5 / #16 | Inicial: 19 vulnerabilidades en 4 paquetes. Tras merge de PRs `#1`..`#6` de Dependabot: 0 vulnerabilidades |
+| R3 | Pruebas dinámicas (DAST) | OWASP ZAP sobre staging | #8 / #9 | Inicial: 3 alertas Medium (`CSP` sin fallback y cookie sin `SameSite`). Tras mitigación (`VULN-08`): High=0, Medium=0, Low=0 |
 | R4 | Revisión manual | Lectura de `app.py` | — | Se detectó XSS reflejado en `/hello`, ausencia de token anti-CSRF en `/login` y falta de cabeceras HTTP de seguridad |
-| R5 | Producción | Grafana + Prometheus | — | Pendiente de monitorización en tiempo real (puerto 5000) |
+| R5 | Producción | Grafana + Prometheus | #9 / #16 | Monitorización en tiempo real (`job="produccion"` y `job="staging"`): detección de fuerza bruta (`login_fallidos_total`) e inyecciones (`peticiones_sospechosas_total`: `xss`, `sqli`, `path_traversal`) |
 
 ## 2. Vulnerabilidades identificadas y corregidas
 
@@ -45,18 +45,22 @@ y un **commit** (usa el identificador `VULN-xx` en el mensaje del commit).
 
 | Paquete | Versión inicial | Vulnerabilidades (IDs) | Versión final | Origen del cambio (PR de Dependabot / manual) | ¿Pruebas, pip-audit y ZAP siguen OK? Build |
 |---|---|---|---|---|---|
-| Flask | 2.2.2 | | | | |
-| Werkzeug | 2.2.2 | | | | |
-| Jinja2 | 3.1.2 | | | | |
-| gunicorn | 21.2.0 | | | | |
-| prometheus-client | 0.17.1 | | | | |
+| Flask | 2.2.2 | GHSA-m2qf-hwjv-5gpq / CVE-2023-30861 | 3.1.3 | PR #4 (`dependabot[bot]`) | Sí (#16) |
+| Werkzeug | 2.2.2 | CVE-2023-25577, CVE-2023-23934, CVE-2023-46136, CVE-2024-34069, CVE-2024-49766, CVE-2024-49767 | 3.1.9 | PR #1 (`dependabot[bot]`) | Sí (#16) |
+| Jinja2 | 3.1.2 | CVE-2024-22195, CVE-2024-34064, CVE-2024-56201, CVE-2024-56326, CVE-2025-27516 | 3.1.6 | PR #6 (`dependabot[bot]`) | Sí (#16) |
+| gunicorn | 21.2.0 | CVE-2024-1135, CVE-2024-6827 | 27.0.1 | PR #3 (`dependabot[bot]`) | Sí (#16) |
+| prometheus-client | 0.17.1 | Sin CVEs críticos (actualización preventiva de mantenimiento) | 0.26.0 | PR #5 (`dependabot[bot]`) | Sí (#16) |
 
 ## 6. Trazabilidad
 
 Pega aquí (o adjunta) el `TRAZABILIDAD.md` del último build y completa un recorrido por cada actividad del pipeline:
 
+| Build | Fecha | Versión | Commit | Mensaje | Pruebas | SAST (H/M/L) | SCA (`pip-audit`) | DAST ZAP (H/M/L) | Resultado | Artefacto desplegado |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 16 | 2026-11-27 22:00 | 1.0.16+a99ee83 | `a99ee83` | Merge pull request #6 from raulfuenzalida/dependabot/pip/proyecto/jinja2-3.1.6 | 9/9 OK | 0/0/0 | 0 vuln. | 0/0/0 | SUCCESS | 1.0.16+a99ee83 |
+
 | Actividad | Hallazgo | Build que lo detectó | Commit / PR que lo resolvió | Build que lo verificó | Versión en producción |
 |---|---|---|---|---|---|
-| Revisión de seguridad (Bandit) | | #__ | | #__ | |
-| Prueba automatizada (OWASP ZAP) | | #__ | | #__ | |
-| Gestión de dependencias (Dependabot) | | #__ | PR #__ | #__ | |
+| Revisión de seguridad (Bandit) | 2 High, 2 Medium, 1 Low (`VULN-01..05`) | #4 | `fix(VULN-01..07)` | #5 | `1.0.16+a99ee83` (`:5000`) |
+| Prueba automatizada (OWASP ZAP) | 3 alertas Medium (`VULN-08`: CSP y cookie sin `SameSite`) | #8 | `fix(VULN-08)` | #9 | `1.0.16+a99ee83` (`:5000`) |
+| Gestión de dependencias (Dependabot + pip-audit) | 19 vulnerabilidades en `Flask`, `Werkzeug`, `Jinja2` y `gunicorn` | #5 | PR #1, #3, #4, #5, #6 (`dependabot[bot]`) | #16 | `1.0.16+a99ee83` (`:5000`) |
