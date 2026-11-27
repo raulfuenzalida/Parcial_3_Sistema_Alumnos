@@ -82,7 +82,7 @@ pipeline {
         stage('DAST - OWASP ZAP') {
             steps {
                 dir('proyecto') {
-                    sh '.venv/bin/python scripts/zap_scan.py'
+                    sh '.venv/bin/python scripts/zap_scan.py http://jenkins:5001'
                 }
             }
         }
