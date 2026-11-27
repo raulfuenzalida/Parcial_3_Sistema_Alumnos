@@ -1,0 +1,42 @@
+LABORATORIO DEL EXAMEN EV3 (OCY1102): PIPELINE SEGURO
+=====================================================
+
+Necesitas Docker Desktop abierto, Git, una cuenta de GitHub e internet.
+Memoria recomendada para Docker: 4 GB libres. La primera vez descarga ~3 GB.
+
+1. Haz doble clic en INICIAR-AQUI.cmd (esta carpeta). Espera «Laboratorio listo».
+   La ventana muestra la clave de Grafana y la clave inicial de Jenkins.
+   No crees la carpeta secrets/ a mano: se genera sola. No la compartas.
+
+2. Las evidencias que debes subir están en proyecto/README.md y en
+   Desarrollo EV3.docx.
+
+   Jenkins:     http://localhost:8080
+   Producción:  http://localhost:5000   (la despliega el pipeline)
+   Staging:     http://localhost:5001   (la escanea OWASP ZAP)
+   Prometheus:  http://localhost:9090
+   Grafana:     http://localhost:3000   (usuario admin)
+
+Si prefieres PowerShell, abre la terminal EN ESTA CARPETA y ejecuta:
+
+   .\iniciar-y-verificar.ps1
+
+Si el puerto 3000 o 9090 está ocupado en tu equipo:
+
+   $env:EV3_GRAFANA_PORT='3300'; .\iniciar-y-verificar.ps1
+
+Comandos útiles (en esta carpeta):
+
+   docker compose ps                       estado de los 5 servicios
+   docker compose logs --tail=80 jenkins   errores de Jenkins
+   docker compose exec taller bash scripts/revisar_local.sh
+                                           pruebas + Bandit + pip-audit de tu
+                                           carpeta proyecto/ ANTES del push
+   docker compose stop                     detener sin borrar nada
+   docker compose down -v                  borrar TODO (al terminar el examen)
+
+SEGURIDAD DEL LABORATORIO
+-------------------------
+Los puertos se publican solo en 127.0.0.1. Jenkins no tiene acceso al motor
+Docker. ZAP solo se alcanza desde la red interna y su API exige una clave.
+La app vulnerable es solo para este equipo: no la publiques en internet.

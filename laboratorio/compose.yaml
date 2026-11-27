@@ -1,0 +1,92 @@
+# Laboratorio del examen (EV3 · OCY1102): pipeline seguro de "Sistema Alumnos".
+#
+#   jenkins    -> CI/CD                       http://localhost:8080
+#                 despliega la app en:        produccion http://localhost:5000 · staging http://localhost:5001
+#   taller     -> la MISMA imagen con tu carpeta ../proyecto montada en /work (pruebas locales, bandit, pip-audit)
+#   zap        -> OWASP ZAP en modo demonio; el pipeline lo controla por su API (solo red interna)
+#   prometheus -> recolecta las métricas de produccion y staging   http://localhost:9090
+#   grafana    -> paneles y alertas                                 http://localhost:3000
+#
+# Seguridad del laboratorio: puertos publicados solo en 127.0.0.1, sin montar /var/run/docker.sock,
+# y las claves (Grafana, API de ZAP) se generan al iniciar en secrets/ (excluida de Git).
+name: examen-ev3
+
+services:
+  jenkins:
+    build: ./jenkins
+    image: examen-ev3-jenkins:latest
+    container_name: ev3-jenkins
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5001:5001"
+    environment:
+      JAVA_OPTS: -Xmx1g
+    secrets:
+      - zap_api_key
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    restart: unless-stopped
+
+  taller:
+    image: examen-ev3-jenkins:latest
+    pull_policy: never
+    container_name: ev3-taller
+    depends_on:
+      - jenkins
+    entrypoint: ["sleep", "infinity"]
+    working_dir: /work
+    volumes:
+      - ../proyecto:/work
+
+  zap:
+    image: zaproxy/zap-stable:2.16.1
+    container_name: ev3-zap
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        exec zap.sh -daemon -silent -host 0.0.0.0 -port 8080
+        -config api.key="$$(cat /run/secrets/zap_api_key)"
+        -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
+    secrets:
+      - zap_api_key
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ev3-prometheus
+    ports:
+      - "127.0.0.1:${EV3_PROM_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: ev3-grafana
+    ports:
+      - "127.0.0.1:${EV3_GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    secrets:
+      - grafana_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
+  prometheus_data:
+  grafana_data:
+
+secrets:
+  zap_api_key:
+    file: ./secrets/zap_api_key.txt
+  grafana_password:
+    file: ./secrets/grafana_password.txt
