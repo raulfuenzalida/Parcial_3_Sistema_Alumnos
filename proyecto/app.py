@@ -21,6 +21,8 @@ app = Flask(__name__)
 
 ## Clave de la aplicación y credenciales del administrador (cargadas desde entorno o generadas de forma segura).
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 ADMIN_USUARIO = os.environ.get("ADMIN_USUARIO", "admin")
 ADMIN_CLAVE_HASH = os.environ.get("ADMIN_CLAVE_HASH") or generate_password_hash(
     os.environ.get("ADMIN_CLAVE", "admin")
@@ -145,7 +147,7 @@ def despues_de_la_peticion(respuesta):
     """
     respuesta.headers["X-Content-Type-Options"] = "nosniff"
     respuesta.headers["X-Frame-Options"] = "DENY"
-    respuesta.headers["Content-Security-Policy"] = "default-src 'self'"
+    respuesta.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
     respuesta.headers["Referrer-Policy"] = "no-referrer"
     respuesta.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
 
