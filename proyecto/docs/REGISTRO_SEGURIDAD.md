@@ -1,6 +1,6 @@
 # Registro de seguridad · Sistema Alumnos
 
-Estudiante: ____________________   Repositorio: ____________________   Fecha: __________
+Estudiante: Raúl Fuenzalida   Repositorio: https://github.com/raulfuenzalida/Parcial_3_Sistema_Alumnos.git   Fecha: 27/11/2026
 
 Completa este registro a medida que avanzas. Cada fila debe poder seguirse hasta un **build de Jenkins**
 y un **commit** (usa el identificador `VULN-xx` en el mensaje del commit).
@@ -31,13 +31,15 @@ y un **commit** (usa el identificador `VULN-xx` en el mensaje del commit).
 
 | Alerta de ZAP | Riesgo | URL de ejemplo | VULN relacionada | Cómo se mitiga | ¿Mitigada? Build |
 |---|---|---|---|---|---|
-| | | | | | |
+| CSP: Failure to Define Directive with No Fallback (10055) | Medium | `http://127.0.0.1:5001/` | VULN-08 | Se añadieron las directivas explícitas `form-action 'self'`, `frame-ancestors 'none'` y `base-uri 'self'` en el header `Content-Security-Policy` | Sí (#9) |
+| Cookie without SameSite Attribute (10054) | Medium | `http://127.0.0.1:5001/login` | VULN-08 | Se configuró `SESSION_COOKIE_SAMESITE = 'Lax'` y `SESSION_COOKIE_HTTPONLY = True` en la aplicación Flask | Sí (#9) |
 
 ## 4. Monitoreo e incidentes
 
 | Hora | Panel / métrica de Grafana | Qué se observó | Entorno | Clasificación | Acción de respuesta | Verificación |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| 18:00 / 21:24 UTC | `Intentos de Login Fallidos` (`login_fallidos_total`) | Incremento súbito de peticiones `POST /login` rechazadas con código HTTP `401` desde `127.0.0.1` (registradas en `despliegues/produccion/access.log`) | Producción (`:5000`) y Staging (`:5001`) | Intento de fuerza bruta sobre autenticación | Correlación entre métricas de Grafana y `access.log` de producción; verificación de bloqueo de credenciales inválidas mediante `check_password_hash` y `hmac.compare_digest` sin accesos exitosos no autorizados | Contención confirmada (`401 Unauthorized` en todos los intentos) |
+| 18:00 / 21:24 UTC | `Peticiones Sospechosas por Tipo de Ataque` (`peticiones_sospechosas_total`: `xss`, `sqli`, `path_traversal`) | Picos simultáneos de peticiones con payloads `<script>alert(1)</script>` en `/hello`, `' OR 1=1--` y `../../etc/passwd` en `/alumnos/buscar` | Producción (`:5000`) y Staging (`:5001`) | Sondeo e intento de explotación web (XSS, SQLi y Path Traversal) | Inspección de trazas en `access.log`, ejecución de prueba de contención contra `/alumnos/buscar?nombre=' OR 1=1--` y verificación de sanitización (`markupsafe.escape`) y consultas SQL parametrizadas | Sin fuga de datos (respuesta controlada `[]` y sin ejecución de scripts) |
 
 ## 5. Gestión de dependencias
 
