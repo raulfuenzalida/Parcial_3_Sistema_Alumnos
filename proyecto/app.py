@@ -5,22 +5,26 @@
 Además de las rutas de negocio, la app publica métricas para Prometheus en /metrics.
 Las métricas de seguridad (logins fallidos y peticiones sospechosas) se ven en Grafana.
 """
-import hashlib
+import hmac
 import os
 import re
+import secrets
 import sqlite3
 import time
 
-from flask import Flask, Response, g, jsonify, render_template_string, request
+from flask import Flask, Response, g, jsonify, render_template_string, request, session
+from markupsafe import escape
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 
-## Clave de la aplicación y credenciales del administrador.
-SECRET_KEY = "SecureDev-2024-clave-super-secreta"
-ADMIN_USUARIO = "admin"
-ADMIN_CLAVE_MD5 = "21232f297a57a5a743894a0e4a801fc3"
-app.config["SECRET_KEY"] = SECRET_KEY
+## Clave de la aplicación y credenciales del administrador (cargadas desde entorno o generadas de forma segura).
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+ADMIN_USUARIO = os.environ.get("ADMIN_USUARIO", "admin")
+ADMIN_CLAVE_HASH = os.environ.get("ADMIN_CLAVE_HASH") or generate_password_hash(
+    os.environ.get("ADMIN_CLAVE", "admin")
+)
 
 ## Versión desplegada: la inyecta el pipeline (1.0.<build>+<commit>). Sirve para la trazabilidad.
 VERSION = os.environ.get("APP_VERSION", "dev")
@@ -67,11 +71,22 @@ PORTADA = """<!doctype html>
 </form>
 <h2>Acceso administrador</h2>
 <form action="/login" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input name="usuario" value="admin"> <input name="clave" type="password" value="">
   <button type="submit">Entrar</button>
 </form>
 </body>
 </html>"""
+
+
+def obtener_csrf_token():
+    """!
+    @brief Genera y almacena un token anti-CSRF por sesión.
+    @return Token CSRF hexadecimal.
+    """
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(16)
+    return session["csrf_token"]
 
 
 def conectar():
@@ -124,10 +139,16 @@ def antes_de_la_peticion():
 @app.after_request
 def despues_de_la_peticion(respuesta):
     """!
-    @brief Registra la métrica de cada petición atendida.
+    @brief Registra métricas y aplica cabeceras de seguridad HTTP en cada respuesta.
     @param respuesta Respuesta que Flask enviará al cliente.
-    @return La misma respuesta.
+    @return La misma respuesta con cabeceras de endurecimiento.
     """
+    respuesta.headers["X-Content-Type-Options"] = "nosniff"
+    respuesta.headers["X-Frame-Options"] = "DENY"
+    respuesta.headers["Content-Security-Policy"] = "default-src 'self'"
+    respuesta.headers["Referrer-Policy"] = "no-referrer"
+    respuesta.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+
     endpoint = request.url_rule.rule if request.url_rule else "desconocido"
     if endpoint != "/metrics":
         HTTP_PETICIONES.labels(request.method, endpoint, str(respuesta.status_code)).inc()
@@ -141,16 +162,16 @@ def portada():
     @brief Portada HTML con enlaces y formularios del sistema.
     @return Página HTML.
     """
-    return render_template_string(PORTADA, version=VERSION)
+    return render_template_string(PORTADA, version=VERSION, csrf_token=obtener_csrf_token())
 
 
 @app.route("/hello")
 def hello():
     """!
-    @brief Saluda al usuario cuyo nombre llega en el parámetro de URL «name».
-    @return Página HTML con el saludo.
+    @brief Saluda al usuario cuyo nombre llega en el parámetro de URL «name» (escapado contra XSS).
+    @return Página HTML con el saludo sanitizado.
     """
-    name = request.args.get("name", "visitante")
+    name = escape(request.args.get("name", "visitante"))
     return f"<h1>Hola, {name}!</h1>"
 
 
@@ -198,27 +219,32 @@ def obtener_alumno(alumno_id):
 @app.route("/alumnos/buscar")
 def buscar_alumnos():
     """!
-    @brief Busca alumnos cuyo nombre contenga el texto del parámetro «nombre».
+    @brief Busca alumnos cuyo nombre contenga el texto del parámetro «nombre» mediante consulta parametrizada.
     @return JSON con los alumnos encontrados.
     """
     nombre = request.args.get("nombre", "")
-    consulta = f"SELECT * FROM alumnos WHERE nombre LIKE '%{nombre}%'"
+    patron = f"%{nombre}%"
     try:
-        filas = conectar().execute(consulta).fetchall()
-    except sqlite3.Error as error:
-        return jsonify({"error": str(error), "consulta": consulta}), 500
+        filas = conectar().execute("SELECT * FROM alumnos WHERE nombre LIKE ?", (patron,)).fetchall()
+    except sqlite3.Error:
+        return jsonify({"error": "Error interno al consultar alumnos"}), 500
     return jsonify([dict(f) for f in filas])
 
 
 @app.route("/login", methods=["POST"])
 def login():
     """!
-    @brief Valida las credenciales del administrador enviadas por formulario.
-    @return JSON con el resultado; 401 si las credenciales no son válidas.
+    @brief Valida token CSRF y credenciales del administrador mediante hash seguro.
+    @return JSON con el resultado; 403 si falla CSRF y 401 si las credenciales no son válidas.
     """
+    token_sesion = session.get("csrf_token")
+    token_form = request.form.get("csrf_token", "")
+    if token_sesion and not hmac.compare_digest(token_sesion, token_form):
+        return jsonify({"error": "Token CSRF inválido"}), 403
+
     usuario = request.form.get("usuario", "")
     clave = request.form.get("clave", "")
-    if usuario == ADMIN_USUARIO and hashlib.md5(clave.encode()).hexdigest() == ADMIN_CLAVE_MD5:
+    if hmac.compare_digest(usuario, ADMIN_USUARIO) and check_password_hash(ADMIN_CLAVE_HASH, clave):
         LOGIN_EXITOSOS.inc()
         return jsonify({"mensaje": "Bienvenido, administrador"})
     LOGIN_FALLIDOS.inc()
@@ -238,4 +264,6 @@ def metrics():
 iniciar_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    port = int(os.environ.get("FLASK_PORT", "5000"))
+    app.run(host=host, port=port, debug=False)
