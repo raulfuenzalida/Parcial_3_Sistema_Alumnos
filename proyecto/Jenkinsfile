@@ -34,7 +34,7 @@ pipeline {
                     // Cada build parte limpio: sin reportes viejos y con un entorno virtual nuevo
                     sh 'rm -rf .venv reports && mkdir -p reports'
                     sh 'python3 -m venv .venv'
-                    sh '.venv/bin/pip install --quiet -r requirements.txt -r requirements-dev.txt'
+                    sh '.venv/bin/pip install --quiet -r requirements.txt -r requirements-dev.txt bandit pip-audit'
                     sh '.venv/bin/python -m compileall -q app.py'
                 }
             }
